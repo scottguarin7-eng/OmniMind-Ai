@@ -1,155 +1,36 @@
-const form = document.getElementById('form');
-const promptInput = document.getElementById('prompt');
-const messagesContainer = document.getElementById('messages');
-const welcomeScreen = document.getElementById('welcome');
-const sendBtn = document.getElementById('send');
-const clearBtn = document.getElementById('clear');
-const suggestions = document.getElementById('suggestions');
+const express = require('express');
+const { GoogleGenAI } = require('@google/genai'); // gamit ang @google/genai package mo
+const app = express();
 
-let history = [];
-let isGenerating = false;
+app.use(express.json());
 
-// Typewriter effect para sa dalawang sagot
-async function typeWriter(element, text, speed = 10) {
-  let i = 0;
-  return new Promise(resolve => {
-    const interval = setInterval(() => {
-      element.textContent += text.charAt(i);
-      i++;
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      if (i >= text.length) {
-        clearInterval(interval);
-        resolve();
-      }
-    }, speed);
-  });
-}
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Para sa message ng user
-function addUserMessage(text) {
-  const msgDiv = document.createElement('div');
-  msgDiv.className = `message user`;
-  msgDiv.innerHTML = `<div class="message-content">${text}</div>`;
-  messagesContainer.appendChild(msgDiv);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-// Para sa dual response (Analyst at Visionary)
-async function addDualAIMessage(analystText, visionaryText) {
-  const container = document.createElement('div');
-  container.className = 'message model';
-  container.innerHTML = `
-    <div class="dual-response-container">
-      <div class="message-content analyst-card">
-        <div class="card-title">🔵 The Analyst</div>
-        <div class="text-content" id="analyst-text"></div>
-      </div>
-      <div class="message-content visionary-card">
-        <div class="card-title">🟣 The Visionary</div>
-        <div class="text-content" id="visionary-text"></div>
-      </div>
-    </div>
-  `;
-  messagesContainer.appendChild(container);
-  
-  const analystEl = container.querySelector('#analyst-text');
-  const visionaryEl = container.querySelector('#visionary-text');
-
-  await Promise.all([
-    typeWriter(analystEl, analystText, 10),
-    typeWriter(visionaryEl, visionaryText, 10)
-  ]);
-}
-
-// ITO YUNG BAGONG TYPING INDICATOR (3 tumatalbog na dots)
-function showTyping() {
-  const typingDiv = document.createElement('div');
-  typingDiv.className = 'message model typing-indicator';
-  typingDiv.id = 'typing';
-  typingDiv.innerHTML = `
-    <div class="message-content">
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-      <div class="typing-dot"></div>
-    </div>
-  `;
-  messagesContainer.appendChild(typingDiv);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-function removeTyping() {
-  const typing = document.getElementById('typing');
-  if (typing) typing.remove();
-}
-
-async function handleSubmit(e) {
-  e.preventDefault();
-  const text = promptInput.value.trim();
-  if (!text || isGenerating) return;
-
-  if (welcomeScreen) welcomeScreen.style.display = 'none';
-  addUserMessage(text);
-  history.push({ role: 'user', text: text });
-  promptInput.value = '';
-  promptInput.style.height = 'auto';
-
-  isGenerating = true;
-  sendBtn.disabled = true;
-  showTyping(); 
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000); 
-
+app.post('/api/chat', async (req, res) => {
   try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: history }),
-      signal: controller.signal
+    const { messages } = req.body;
+    
+    // Kunin ang huling mensahe ng user mula sa array
+    const latestMessage = messages[messages.length - 1].text;
+
+    // Halimbawa ng pagtawag sa Gemini para makagawa ng analyst at visionary response
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: latestMessage,
     });
 
-    clearTimeout(timeoutId);
-    const data = await response.json();
-    removeTyping();
+    const aiText = response.text;
 
-    if (!response.ok) throw new Error(data.error || 'Failed');
-
-    await addDualAIMessage(data.analyst, data.visionary); 
-    history.push({ role: 'model', text: `Analyst: ${data.analyst}\nVisionary: ${data.visionary}` });
+    // Ibalik ang JSON data na may analyst at visionary keys ayon sa inaasahan ng app.js mo
+    res.json({
+      analyst: "Analyst view: " + aiText,
+      visionary: "Visionary view: " + aiText
+    });
 
   } catch (error) {
-    clearTimeout(timeoutId);
-    removeTyping();
-    const errDiv = document.createElement('div');
-    errDiv.className = 'message model';
-    errDiv.innerHTML = `<div class="message-content">Error: ${error.name === 'AbortError' ? 'Timeout. Pakisubukan muli.' : error.message}</div>`;
-    messagesContainer.appendChild(errDiv);
-  } finally {
-    isGenerating = false;
-    sendBtn.disabled = false;
-    promptInput.focus();
+    console.error(error);
+    res.status(500).json({ error: error.message });
   }
-}
-
-form.addEventListener('submit', handleSubmit);
-
-promptInput.addEventListener('input', function() {
-  this.style.height = 'auto';
-  this.style.height = (this.scrollHeight) + 'px';
 });
 
-if (suggestions) {
-  suggestions.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (btn && btn.dataset.prompt) {
-      promptInput.value = btn.dataset.prompt;
-      promptInput.focus();
-    }
-  });
-}
-
-clearBtn.addEventListener('click', () => {
-  messagesContainer.innerHTML = '';
-  history = [];
-  if (welcomeScreen) welcomeScreen.style.display = 'block';
-});
+module.exports = app;
