@@ -8,20 +8,23 @@ app.post('/api/chat', async (req, res) => {
   try {
     const { messages } = req.body;
     
-    if (!messages || messages.length === 0) {
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return res.status(400).json({ error: 'Walang natanggap na mensahe.' });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
       return res.status(500).json({ error: 'Nawawala ang GEMINI_API_KEY sa Vercel Environment Variables.' });
     }
 
-    const latestMessage = messages[messages.length - 1].text;
+    const latestMessage = messages[messages.length - 1].text || "Hi";
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    // Initialize Google Gen AI
+    const ai = new GoogleGenAI({ apiKey: apiKey });
 
+    // Gamitin ang gusto mong model version dito
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: latestMessage,
     });
 
@@ -34,6 +37,7 @@ app.post('/api/chat', async (req, res) => {
 
   } catch (error) {
     console.error("Server Error:", error);
+    // Siguraduhing laging JSON format ang error para hindi mag-error ang app.js
     return res.status(500).json({ error: error.message || 'May naganap na server error.' });
   }
 });
