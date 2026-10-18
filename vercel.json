@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/server.js" }
+  ],
+  "functions": {
+    "server.js": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/@google/genai/**"
+    }
+  }
+}
