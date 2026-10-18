@@ -1,0 +1,26 @@
+# OmniMind AI website starter
+
+This is a standalone starter website inspired by the screenshots. It is not yet a public/live website, and it is not a direct export of the original Gemini Canvas project.
+
+## Included
+- Responsive dark/cyan OmniMind Neural Engine design
+- Smooth transitions and reduced-motion support
+- Chat UI connected to a server-side Gemini API endpoint
+- Secret API key is read from a server `.env` file, never browser JS
+- Provider status/About panel
+- Math, Studio, Music, and Feats are clearly marked as not implemented yet
+- Google Search grounding is not falsely claimed to be enabled
+
+## Run
+1. Install Node.js.
+2. Extract the ZIP.
+3. Run `npm install`.
+4. Copy `.env.example` to `.env`.
+5. Add your Gemini API key in `.env` (do not share or upload it).
+6. Run `npm start`.
+7. Open `http://localhost:3000`.
+
+## Publish
+To publish it, use a host that supports Node.js web services and private environment variables. For example, Render documents a free web service tier: https://render.com/docs/free. Connect this project through a Git repository, use `npm install` as the build command and `npm start` as the start command, and set `GEMINI_API_KEY` and `GEMINI_MODEL` as private environment variables. Free hosting has limits and may sleep while idle; check current terms and usage before publishing.
+
+A public launch should add rate limiting/abuse protection. Review Gemini API pricing and supported model names before enabling public usage. Never commit `.env`.
