@@ -22,13 +22,14 @@ app.post('/api/chat', async (req, res) => {
     // Initialize Google Gen AI
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
-    // Gamitin ang gusto mong model version dito
+    // Paggamit ng opisyal na model tulad ng gemini-1.5-flash
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-1.5-flash',
       contents: latestMessage,
     });
 
-    const aiText = response.text || "Pasensya na, walang naibalik na sagot.";
+    // Kunin ang text mula sa response nang ligtas
+    const aiText = response.text || (response.candidates && response.candidates[0]?.content?.parts[0]?.text) || "Pasensya na, walang naibalik na sagot.";
 
     return res.json({
       analyst: `[The Analyst]\n${aiText}`,
@@ -37,7 +38,6 @@ app.post('/api/chat', async (req, res) => {
 
   } catch (error) {
     console.error("Server Error:", error);
-    // Siguraduhing laging JSON format ang error para hindi mag-error ang app.js
     return res.status(500).json({ error: error.message || 'May naganap na server error.' });
   }
 });
