@@ -43,7 +43,7 @@ app.post('/api/chat', async (req, res) => {
   
   try {
     const result = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-3.1-flash',
       contents: safeMessages,
       config: { systemInstruction: systemInstruction, temperature: 0.8 }
     });
