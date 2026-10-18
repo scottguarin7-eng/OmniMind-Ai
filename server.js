@@ -1,66 +1,42 @@
-import 'dotenv/config';
-import express from 'express';
-import { GoogleGenAI } from '@google/genai';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+const express = require('express');
+const { GoogleGenAI } = require('@google/genai');
 
 const app = express();
-const here = path.dirname(fileURLToPath(import.meta.url));
+app.use(express.json());
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.static(path.join(here, 'public')));
-
-// 1. API ROUTES
-app.get('/api/health', (_req, res) => {
-  res.json({ configured: Boolean(process.env.GEMINI_API_KEY) });
-});
+// Initialize Google Gen AI client gamit ang Environment Variable sa Vercel
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 app.post('/api/chat', async (req, res) => {
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'API key missing.' });
-  }
-  
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-  const safeMessages = messages
-    .filter(m => m && ['user', 'model'].includes(m.role) && typeof m.text === 'string')
-    .slice(-8)
-    .map(m => ({ role: m.role, parts: [{ text: m.text.slice(0, 4000) }] }));
-
-  if (!safeMessages.length || safeMessages.at(-1).role !== 'user') {
-    return res.status(400).json({ error: 'Please enter a message first.' });
-  }
-
-  const systemInstruction = `You are OmniMind AI, a dual-mind assistant.
-  You must provide TWO distinct responses to the user's prompt, formatted EXACTLY like this:
-  
-  [ANALYST]
-  (Your logical, factual, data-driven, and serious response here.)
-  
-  [VISIONARY]
-  (Your creative, out-of-the-box, imaginative, and visionary response here.)`;
-
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  
   try {
-    const result = await ai.models.generateContent({
-      model: 'gemini-3.1-flash',
-      contents: safeMessages,
-      config: { systemInstruction: systemInstruction, temperature: 0.8 }
+    const { messages } = req.body;
+    
+    if (!messages || messages.length === 0) {
+      return res.status(400).json({ error: 'Walang natanggap na mensahe.' });
+    }
+
+    // Kunin ang huling mensahe ng user mula sa history array
+    const latestMessage = messages[messages.length - 1].text;
+
+    // Tawagin ang Gemini API gamit ang @google/genai package
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: latestMessage,
     });
 
-    const rawText = result.text || '';
-    const parts = rawText.split('[VISIONARY]');
-    const analystPart = parts[0].replace('[ANALYST]', '').trim();
-    const visionaryPart = parts[1] ? parts[1].trim() : '';
+    const aiText = response.text || "Pasensya na, walang naibalik na sagot.";
 
-    return res.json({ analyst: analystPart, visionary: visionaryPart });
-  } catch (err) {
-    console.error('Error:', err?.message);
-    res.status(502).json({ error: 'AI error. Please try again.' });
+    // Ibalik ang JSON response na may analyst at visionary keys para sa frontend mo
+    res.json({
+      analyst: `[Analyst Response]\n${aiText}`,
+      visionary: `[Visionary Perspective]\nIsang malalim at makabagong pananaw tungkol dito: ${aiText}`
+    });
+
+  } catch (error) {
+    console.error("Server Error:", error);
+    res.status(500).json({ error: error.message || 'May naganap na error sa server.' });
   }
 });
 
-// 2. FALLBACK ROUTE (Dapat laging nasa pinakailalim)
-app.get('*', (_req, res) => res.sendFile(path.join(here, 'public', 'index.html')));
-
-export default app;
+// Export para sa Vercel Serverless Functions
+module.exports = app;
