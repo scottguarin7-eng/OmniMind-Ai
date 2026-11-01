@@ -1,4 +1,4 @@
-const MODEL = "gemini-3.8-flash";
+const MODEL = "gemini-2.0-flash";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
