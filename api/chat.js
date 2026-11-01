@@ -1,6 +1,10 @@
-const MODEL = "gemini-3.8-flash";
-const MAX_ATTEMPTS = 2;
-const REQUEST_TIMEOUT = 25000;
+const MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.5-flash-lite"
+];
+
+const MAX_ATTEMPTS_PER_MODEL = 2;
+const REQUEST_TIMEOUT = 20000;
 
 function wait(ms) {
   return new Promise((resolve) => {
@@ -8,7 +12,7 @@ function wait(ms) {
   });
 }
 
-function temporaryError(status) {
+function isTemporary(status) {
   return [
     408,
     425,
@@ -20,17 +24,25 @@ function temporaryError(status) {
   ].includes(status);
 }
 
-function retryDelay(attempt) {
-  return attempt === 0 ? 1200 : 2500;
+function getDelay(attempt) {
+  const base = attempt === 0 ? 1000 : 2200;
+  const jitter = Math.floor(Math.random() * 400);
+
+  return base + jitter;
 }
 
-async function requestGemini(apiKey, message, signal) {
-  const url =
+async function callModel({
+  apiKey,
+  model,
+  message,
+  signal
+}) {
+  const endpoint =
     "https://generativelanguage.googleapis.com/v1beta/models/" +
-    MODEL +
+    model +
     ":generateContent";
 
-  return fetch(url, {
+  return fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -56,6 +68,10 @@ async function requestGemini(apiKey, message, signal) {
   });
 }
 
+async function readJson(response) {
+  return response.json().catch(() => ({}));
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -70,7 +86,8 @@ export default async function handler(req, res) {
 
   if (!apiKey) {
     return res.status(500).json({
-      error: "GEMINI_API_KEY is missing in Vercel."
+      error:
+        "GEMINI_API_KEY is missing in Vercel Environment Variables."
     });
   }
 
@@ -86,84 +103,89 @@ export default async function handler(req, res) {
     controller.abort();
   }, REQUEST_TIMEOUT);
 
+  let lastStatus = 503;
+  let lastError = "No model responded.";
+
   try {
-    let lastStatus = 503;
-    let lastProviderError =
-      "Gemini did not return a response.";
+    for (const model of MODELS) {
+      for (
+        let attempt = 0;
+        attempt < MAX_ATTEMPTS_PER_MODEL;
+        attempt++
+      ) {
+        try {
+          const response = await callModel({
+            apiKey,
+            model,
+            message,
+            signal: controller.signal
+          });
 
-    for (
-      let attempt = 0;
-      attempt < MAX_ATTEMPTS;
-      attempt++
-    ) {
-      try {
-        const response = await requestGemini(
-          apiKey,
-          message,
-          controller.signal
-        );
+          const data = await readJson(response);
 
-        const data = await response.json().catch(() => ({}));
+          if (response.ok) {
+            const text =
+              data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (response.ok) {
-          const text =
-            data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              return res.status(200).json({
+                text,
+                model,
+                attempts: attempt + 1
+              });
+            }
 
-          if (!text) {
-            return res.status(502).json({
-              error: "Gemini returned an empty response.",
-              provider: data
+            lastStatus = 502;
+            lastError =
+              "The model returned an empty response.";
+            break;
+          }
+
+          lastStatus = response.status;
+          lastError =
+            data?.error?.message ||
+            `Model ${model} returned HTTP ${response.status}.`;
+
+          if (
+            response.status === 400 ||
+            response.status === 401 ||
+            response.status === 403
+          ) {
+            return res.status(response.status).json({
+              error: lastError,
+              model
             });
           }
 
-          return res.status(200).json({
-            text,
-            model: MODEL,
-            attempts: attempt + 1
-          });
-        }
+          if (!isTemporary(response.status)) {
+            break;
+          }
 
-        lastStatus = response.status;
-        lastProviderError =
-          data?.error?.message ||
-          `Gemini returned HTTP ${response.status}.`;
+          if (attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
+            await wait(getDelay(attempt));
+          }
+        } catch (error) {
+          if (error.name === "AbortError") {
+            return res.status(504).json({
+              error:
+                "The Gemini request timed out after 20 seconds."
+            });
+          }
 
-        if (!temporaryError(response.status)) {
-          return res.status(response.status).json({
-            error: lastProviderError,
-            status: response.status,
-            model: MODEL
-          });
-        }
+          lastError = error.message;
 
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await wait(retryDelay(attempt));
-        }
-      } catch (error) {
-        if (error.name === "AbortError") {
-          return res.status(504).json({
-            error:
-              "Gemini timed out after 25 seconds. " +
-              "The provider did not respond in time."
-          });
-        }
-
-        lastProviderError = error.message;
-
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await wait(retryDelay(attempt));
+          if (attempt < MAX_ATTEMPTS_PER_MODEL - 1) {
+            await wait(getDelay(attempt));
+          }
         }
       }
     }
 
     return res.status(lastStatus).json({
       error:
-        "Gemini is temporarily unavailable after " +
-        MAX_ATTEMPTS +
-        " attempts.",
-      providerError: lastProviderError,
-      status: lastStatus,
-      model: MODEL
+        "All configured Gemini models are temporarily unavailable.",
+      details: lastError,
+      triedModels: MODELS
     });
   } finally {
     clearTimeout(timeout);
