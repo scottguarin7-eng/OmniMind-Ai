@@ -1,52 +1,82 @@
-import { GoogleGenAI } from '@google/genai';
-
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "Only POST requests are allowed."
+    });
   }
 
   try {
+    const body = req.body || {};
+    const message = String(body.message || "").trim();
+
+    if (!message) {
+      return res.status(400).json({
+        error: "Message is required."
+      });
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
+
     if (!apiKey) {
-      return res.status(503).json({ error: 'API key missing.' });
+      return res.status(500).json({
+        error: "GEMINI_API_KEY is missing in Vercel."
+      });
     }
 
-    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-    const safeMessages = messages
-      .filter(m => m && ['user', 'model'].includes(m.role) && typeof m.text === 'string')
-      .slice(-8)
-      .map(m => ({ role: m.role, parts: [{ text: m.text.slice(0, 4000) }] }));
+    const model = "gemini-3.8-flash";
 
-    if (!safeMessages.length || safeMessages.at(-1).role !== 'user') {
-      return res.status(400).json({ error: 'Please enter a message first.' });
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" +
+        model +
+        ":generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text: message
+                }
+              ]
+            }
+          ]
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error:
+          data?.error?.message ||
+          "Gemini API request failed."
+      });
     }
 
-    const systemInstruction = `You are OmniMind AI, a dual-mind assistant.
-    You must provide TWO distinct responses to the user's prompt, formatted EXACTLY like this:
-    
-    [ANALYST]
-    (Your logical, factual, data-driven, and serious response here.)
-    
-    [VISIONARY]
-    (Your creative, out-of-the-box, imaginative, and visionary response here.)`;
+    const answer =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    if (!answer) {
+      return res.status(502).json({
+        error: "Gemini returned no text."
+      });
+    }
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: safeMessages,
-      config: { systemInstruction: systemInstruction, temperature: 0.8 }
+    return res.status(200).json({
+      text: answer
     });
+  } catch (error) {
+    console.error("CHAT_ERROR:", error);
 
-    const rawText = result.text || '';
-    const parts = rawText.split('[VISIONARY]');
-    const analystPart = parts[0].replace('[ANALYST]', '').trim();
-    const visionaryPart = parts[1] ? parts[1].trim() : '';
-
-    return res.status(200).json({ analyst: analystPart, visionary: visionaryPart });
-
-  } catch (err) {
-    console.error('Error:', err?.message);
-    return res.status(500).json({ error: 'Server error: ' + (err.message || 'Unknown') });
+    return res.status(500).json({
+      error: "Server error: " + error.message
+    });
   }
-}
+      }
