@@ -76,7 +76,7 @@ export default async function handler(req, res) {
     });
   }
 
-  const model = "gemini-3.8-flash";
+  const model = "gemini-2.0-flash";
   const maxAttempts = 4;
   const controller = new AbortController();
 
